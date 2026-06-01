@@ -66,6 +66,23 @@ Key sentence:
 | Window sensitivity | CLIPScore is stable across 10/80/10, 15/70/15, 20/70/10, and 25/60/15; ImageReward follows the expected speed-quality tradeoff. |
 | r stress test | CLIPScore remains stable for r=3 to r=6, while ImageReward drops at the boundary, clarifying the practical acceleration regime. |
 
+### Optional Table 6: Consecutive-skip boundary
+
+Setting: SDXL base 1.0, 200 COCO prompts, 1024x1024, 50 steps, DPM solver, guidance 5.0, batch size 1. Generation and evaluation were run sequentially on GPU2. Default rows sweep only `max_interval`; extended-anchor rows increase `lagrange_int` to allow longer observed consecutive skip runs.
+
+| Schedule | max_interval | lagrange_int | Observed max consecutive skips | NFE | sec/img | CLIP ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Default | 2 | 6 | 2 | 27.0 | 1.625 | 0.3169 | 0.7450 |
+| Default | 4 | 6 | 4 | 27.0 | 1.636 | 0.3171 | 0.7631 |
+| Default | 6 | 6 | 5 | 24.0 | 1.463 | 0.3166 | 0.7339 |
+| Default | 8 | 6 | 5 | 24.0 | 1.469 | 0.3166 | 0.7339 |
+| Extended | 8 | 8 | 7 | 23.0 | 1.432 | 0.3167 | 0.7366 |
+| Extended | 12 | 12 | 11 | 22.0 | 1.346 | 0.3133 | 0.5599 |
+
+Key sentence:
+
+> Under the default anchor schedule, increasing max_interval beyond 6 saturates at 5 observed consecutive skips and does not further change quality. When we explicitly extend the anchor interval, 7 consecutive skips remains close to default quality, while 11 consecutive skips causes a large ImageReward drop, identifying the practical failure boundary.
+
 ## Draft Rebuttal Text
 
 We thank the reviewers for the concrete suggestions. We added two sets of experiments to address the main missing evidence: standard text-to-image alignment/preference metrics and video temporal metrics.
@@ -77,6 +94,8 @@ Second, to address the concern that changing the ODE integration trajectory may 
 Regarding SADA and other adaptive methods, we agree that adaptive budget allocation is a different axis from our fixed output-level reuse strategy. Our claim is not that ZEUS subsumes adaptive schedulers or dominates every operating point. Rather, ZEUS asks a different question: how much output-level information is sufficient for acceleration under evaluation scarcity, using a simple recipe without training, a learned policy, per-model calibration, or architecture-specific cache design. To avoid ambiguity, we will emphasize real end-to-end wall-clock latency rather than nominal acceleration labels. The new FLUX timing result is an example: ZEUS and SADA have essentially identical same-GPU latency, while ZEUS gives higher ImageReward in that setting. For SD-family cases where SADA has stronger single-metric quality at nearby speedups, we will state this clearly and frame ZEUS as a simpler quality-speed-memory tradeoff rather than a pointwise replacement for adaptive methods.
 
 We also added an SDXL matched-budget comparison because several comments focus on legacy latent diffusion models. On 200 COCO prompts, Full/SADA/ZEUS obtain CLIPScore 0.3170/0.3171/0.3166 and ImageReward 0.7550/0.7417/0.7339. In a separate same-GPU sequential timing pass, Full/SADA/ZEUS use 50.0/25.2/24.0 actual NFE and take 3.366/1.556/1.464 sec/img. Thus SADA has slightly higher ImageReward on this SDXL setting, while ZEUS is about 6% faster than SADA with nearly identical CLIPScore. We will report this candidly as a fair speed-quality tradeoff.
+
+To probe the limit boundary of interleaved scheduling, we also ran a consecutive-skip stress test on 200 SDXL COCO prompts on one GPU. Under the default anchor schedule, increasing max_interval from 2 to 8 yields observed maximum consecutive skips of 2, 4, 5, and 5, respectively, with CLIPScore around 0.3166-0.3171 and ImageReward 0.7339-0.7631. Since the default anchor interval itself caps longer runs, we additionally extended the anchor interval: 7 consecutive skips remains close to default quality (CLIP 0.3167, ImageReward 0.7366), while 11 consecutive skips causes a large ImageReward drop to 0.5599. We will clarify that ZEUS is intended for the practical moderate-acceleration regime, not arbitrary long cache intervals.
 
 For the complementarity claim, we agree that joint measurements with sparse attention or cache methods would be needed to prove empirical additivity. Our intended claim is architectural: ZEUS modifies the sampling schedule and output-level denoiser reuse, whereas token/attention sparsification reduces per-call computation inside the denoiser. We will therefore soften the wording to "potentially complementary" and list joint ZEUS plus sparse/cache evaluation as future work.
 

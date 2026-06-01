@@ -86,6 +86,25 @@ Setting: SDXL base 1.0, 50 COCO prompts, `1024x1024`, `50` steps, DPM solver, gu
 
 Takeaway: CLIPScore remains stable even under more aggressive skipping, but ImageReward drops at the boundary. This is useful for stating a practical acceleration regime instead of implying unlimited skip aggressiveness.
 
+## SDXL Consecutive-Skip Boundary Stress
+
+Run root: `rebuttal/runs/sdxl_max_interval200`
+
+Setting: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1. All generation and evaluation were run sequentially on the same GPU2. This experiment targets the reviewer concern about the maximum number of consecutive skipped/cached steps, so the table reports the observed maximum consecutive skips per sample.
+
+The default-schedule rows keep the ZEUS schedule fixed: `acc_range=(10,45)`, `denominator=3`, `modular=[0,1]`, `lagrange_term=3`, `lagrange_step=24`, and `lagrange_int=6`, while sweeping only `max_interval`. The extended-anchor rows keep the same settings except for `lagrange_int`, allowing longer observed consecutive skip runs.
+
+| Schedule | max_interval | lagrange_int | Observed max consecutive skips | Actual NFE | sec/img ↓ | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Default | 2 | 6 | 2 | 27.0 | 1.625 | 0.3169 | 0.7450 |
+| Default | 4 | 6 | 4 | 27.0 | 1.636 | 0.3171 | 0.7631 |
+| Default | 6 | 6 | 5 | 24.0 | 1.463 | 0.3166 | 0.7339 |
+| Default | 8 | 6 | 5 | 24.0 | 1.469 | 0.3166 | 0.7339 |
+| Extended anchor | 8 | 8 | 7 | 23.0 | 1.432 | 0.3167 | 0.7366 |
+| Extended anchor | 12 | 12 | 11 | 22.0 | 1.346 | 0.3133 | 0.5599 |
+
+Takeaway: under the default ZEUS anchor schedule, increasing `max_interval` beyond 6 does not create longer consecutive skips; the observed run length saturates at 5 and quality is unchanged. When we explicitly extend the anchor interval, 7 consecutive skips remains close to default quality, while 11 consecutive skips causes a large ImageReward drop. This gives a concrete failure boundary and supports stating that ZEUS targets the practical moderate-acceleration regime rather than arbitrary long cache intervals.
+
 ## Wan2.1 Balanced VBench-24
 
 Run root: `rebuttal/runs/wan_vbench24_balanced`

@@ -152,15 +152,33 @@ def run_batch(pipe, prompts: list[str], seeds: list[int], args):
 
 def get_skip_stats(pipe, method: str, steps: int) -> dict:
     if method == "original":
-        return {"skip_count": 0, "actual_nfe": steps, "skipping_path": []}
+        return {
+            "skip_count": 0,
+            "actual_nfe": steps,
+            "observed_max_consecutive_skips": 0,
+            "skipping_path": [],
+        }
 
     diffusion_model = getattr(pipe, "unet", None) or getattr(pipe, "transformer", None)
     bus = getattr(diffusion_model, "_cache_bus", None)
     skipping_path = list(getattr(bus, "skipping_path", [])) if bus is not None else []
+    unique_steps = sorted(set(skipping_path))
+    max_run = 0
+    current_run = 0
+    previous_step = None
+    for step in unique_steps:
+        if previous_step is None or step == previous_step + 1:
+            current_run += 1
+        else:
+            current_run = 1
+        max_run = max(max_run, current_run)
+        previous_step = step
+
     skip_count = len(skipping_path)
     return {
         "skip_count": skip_count,
         "actual_nfe": steps - skip_count,
+        "observed_max_consecutive_skips": max_run,
         "skipping_path": skipping_path,
     }
 
@@ -255,6 +273,16 @@ def main(args):
         ),
         "mean_skip_count": (
             sum(record["skip_count"] for record in nfe_records) / len(nfe_records)
+            if nfe_records
+            else 0
+        ),
+        "mean_observed_max_consecutive_skips": (
+            sum(record["observed_max_consecutive_skips"] for record in nfe_records) / len(nfe_records)
+            if nfe_records
+            else 0
+        ),
+        "max_observed_max_consecutive_skips": (
+            max(record["observed_max_consecutive_skips"] for record in nfe_records)
             if nfe_records
             else 0
         ),
