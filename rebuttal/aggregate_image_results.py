@@ -23,6 +23,8 @@ def main(args):
                 "seconds_per_image": run_metrics.get("seconds_per_image"),
                 "total_generation_seconds": run_metrics.get("total_generation_seconds"),
                 "peak_memory_gb": run_metrics.get("peak_memory_gb"),
+                "mean_actual_nfe": run_metrics.get("mean_actual_nfe"),
+                "mean_skip_count": run_metrics.get("mean_skip_count"),
                 "clip_score": eval_metrics.get("clip_score"),
                 "image_reward": eval_metrics.get("image_reward"),
             }
@@ -32,15 +34,17 @@ def main(args):
     if args.output_json:
         Path(args.output_json).write_text(json.dumps(output, indent=2), encoding="utf-8")
 
-    headers = ["method", "images", "sec/img", "peak GB", "CLIPScore", "ImageReward"]
+    headers = ["method", "images", "sec/img", "NFE", "skip", "peak GB", "CLIPScore", "ImageReward"]
     print("| " + " | ".join(headers) + " |")
     print("|" + "|".join(["---"] * len(headers)) + "|")
     for row in rows:
         print(
-            "| {method} | {images} | {seconds_per_image:.3f} | {peak_memory_gb:.2f} | {clip_score} | {image_reward} |".format(
+            "| {method} | {images} | {seconds_per_image:.3f} | {mean_actual_nfe:.1f} | {mean_skip_count:.1f} | {peak_memory_gb:.2f} | {clip_score} | {image_reward} |".format(
                 method=row["method"],
                 images=row["images"],
                 seconds_per_image=row["seconds_per_image"] or 0,
+                mean_actual_nfe=row["mean_actual_nfe"] or 0,
+                mean_skip_count=row["mean_skip_count"] or 0,
                 peak_memory_gb=row["peak_memory_gb"] or 0,
                 clip_score=(
                     f"{row['clip_score']:.4f}" if isinstance(row["clip_score"], float) else "TBD"

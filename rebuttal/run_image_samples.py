@@ -140,8 +140,29 @@ def run_batch(pipe, prompts: list[str], seeds: list[int], args):
             guidance_scale=args.guidance_scale,
             max_sequence_length=512,
         )
+    elif args.model_family == "sdxl":
+        common.update(
+            height=args.height,
+            width=args.width,
+            guidance_scale=args.guidance_scale,
+        )
 
     return pipe(**common).images
+
+
+def get_skip_stats(pipe, method: str, steps: int) -> dict:
+    if method == "original":
+        return {"skip_count": 0, "actual_nfe": steps, "skipping_path": []}
+
+    diffusion_model = getattr(pipe, "unet", None) or getattr(pipe, "transformer", None)
+    bus = getattr(diffusion_model, "_cache_bus", None)
+    skipping_path = list(getattr(bus, "skipping_path", [])) if bus is not None else []
+    skip_count = len(skipping_path)
+    return {
+        "skip_count": skip_count,
+        "actual_nfe": steps - skip_count,
+        "skipping_path": skipping_path,
+    }
 
 
 def main(args):
@@ -171,6 +192,7 @@ def main(args):
     total_time = 0.0
     generated = 0
     batch_times = []
+    nfe_records = []
 
     num_batches = (len(prompts) + args.batch_size - 1) // args.batch_size
     for batch_idx in tqdm(range(num_batches), desc=f"{args.method}:{args.model_family}"):
@@ -196,8 +218,12 @@ def main(args):
         t0 = time.perf_counter()
         images = run_batch(pipe, pending, pending_seeds, args)
         elapsed = time.perf_counter() - t0
+        skip_stats = get_skip_stats(pipe, args.method, args.steps)
         total_time += elapsed
-        batch_times.append({"start_id": pending_ids[0], "count": len(pending), "seconds": elapsed})
+        batch_record = {"start_id": pending_ids[0], "count": len(pending), "seconds": elapsed, **skip_stats}
+        batch_times.append(batch_record)
+        for image_id in pending_ids:
+            nfe_records.append({"id": image_id, **skip_stats})
 
         for image_id, image in zip(pending_ids, images):
             pil_image = to_pil_image((image * 255).astype(np.uint8))
@@ -222,6 +248,16 @@ def main(args):
         "total_generation_seconds": total_time,
         "seconds_per_image": total_time / max(generated, 1),
         "peak_memory_gb": peak_memory_gb,
+        "mean_actual_nfe": (
+            sum(record["actual_nfe"] for record in nfe_records) / len(nfe_records)
+            if nfe_records
+            else args.steps
+        ),
+        "mean_skip_count": (
+            sum(record["skip_count"] for record in nfe_records) / len(nfe_records)
+            if nfe_records
+            else 0
+        ),
         "acc_range": [args.acc_start, args.acc_end],
         "denominator": args.denominator,
         "modular": args.modular,
@@ -232,6 +268,7 @@ def main(args):
         },
         "max_interval": args.max_interval,
         "batch_times": batch_times,
+        "nfe_records": nfe_records,
     }
     metrics_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))

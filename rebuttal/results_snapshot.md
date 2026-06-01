@@ -26,6 +26,66 @@ Setting: single GPU2, sequential runs, 20 COCO prompts, FLUX.1-dev, 50 steps, ba
 
 This is the cleaner latency table to quote, because all methods were run on the same GPU sequentially. The 40-image timing run in `rebuttal/runs/flux_timing40` is a useful sanity check but was run concurrently across different GPUs.
 
+## SDXL Matched-Budget SADA Comparison
+
+Quality run root: `rebuttal/runs/sdxl_coco200_matched`
+
+Timing run root: `rebuttal/runs/sdxl_timing50_gpu2`
+
+Setting: SDXL base 1.0, COCO2017 prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1. Quality metrics use 200 prompts. Timing is a separate single-GPU sequential pass on GPU2 with 50 prompts, so use the timing numbers for latency.
+
+| Method | Quality images | Actual NFE | sec/img ↓ | Speedup ↑ | Peak memory | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Full | 200 | 50.0 | 3.366 | 1.00x | 11.50 GB | 0.3170 | 0.7550 |
+| SADA | 200 | 25.2 | 1.556 | 2.16x | 11.50 GB | 0.3171 | 0.7417 |
+| ZEUS | 200 | 24.0 | 1.464 | 2.30x | 11.50 GB | 0.3166 | 0.7339 |
+
+Takeaway: ZEUS and SADA are matched closely in actual NFE and same-GPU latency. SADA has slightly higher ImageReward on this SDXL run, while ZEUS is about 6% faster with nearly identical CLIPScore. This should be written as a deployment tradeoff, not as pointwise quality dominance.
+
+## SDXL Predictor Ablation
+
+Run root: `rebuttal/runs/sdxl_ablation50`
+
+Setting: SDXL base 1.0, 50 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`.
+
+| Predictor setting | Actual NFE | sec/img ↓ | CLIPScore ↑ | ImageReward ↑ | Note |
+|---|---:|---:|---:|---:|---|
+| ZEUS no Lagrange tail | 27.0 | 2.058 | 0.3139 | 0.8082 | More conservative; slower but better preference score |
+| ZEUS default Lagrange-3 | 24.0 | 1.871 | 0.3132 | 0.7414 | Default speed-quality point |
+| ZEUS Lagrange-4 | 24.0 | 1.864 | 0.3122 | 0.7289 | Richer tail predictor does not improve quality |
+
+Takeaway: a richer Lagrange tail predictor does not improve quality under the same construction. The more conservative no-Lagrange variant improves ImageReward but uses more NFE and latency, which supports presenting ZEUS as a controllable speed-quality tradeoff.
+
+## SDXL Window Sensitivity
+
+Run root: `rebuttal/runs/sdxl_window50`
+
+Setting: SDXL base 1.0, 50 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`.
+
+| Window | Actual NFE | sec/img ↓ | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|
+| 10/80/10 | 21.0 | 1.664 | 0.3141 | 0.7746 |
+| 15/70/15 | 25.0 | 1.924 | 0.3125 | 0.7414 |
+| 20/70/10 | 24.0 | 1.868 | 0.3132 | 0.7414 |
+| 25/60/15 | 28.0 | 2.143 | 0.3138 | 0.8148 |
+
+Takeaway: CLIPScore is stable across nearby windows. ImageReward shifts with the expected speed-quality tradeoff: the more conservative 25/60/15 setting is slower and improves ImageReward, while more aggressive settings are faster. This supports describing 20/70/10 as a deterministic default rather than a fragile hidden tuning choice.
+
+## SDXL Acceleration Stress Test
+
+Run root: `rebuttal/runs/sdxl_stress50`
+
+Setting: SDXL base 1.0, 50 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`.
+
+| Setting | Actual NFE | sec/img ↓ | CLIPScore ↑ | ImageReward ↑ | Note |
+|---|---:|---:|---:|---:|---|
+| r=3 | 24.0 | 1.890 | 0.3132 | 0.7414 | Default |
+| r=4 | 23.0 | 1.806 | 0.3120 | 0.7188 | More aggressive |
+| r=5 | 21.0 | 1.672 | 0.3136 | 0.7386 | Stress setting |
+| r=6 | 22.0 | 1.750 | 0.3129 | 0.7101 | Boundary setting |
+
+Takeaway: CLIPScore remains stable even under more aggressive skipping, but ImageReward drops at the boundary. This is useful for stating a practical acceleration regime instead of implying unlimited skip aggressiveness.
+
 ## Wan2.1 Balanced VBench-24
 
 Run root: `rebuttal/runs/wan_vbench24_balanced`

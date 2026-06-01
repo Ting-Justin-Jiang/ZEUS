@@ -44,6 +44,28 @@ Key sentence:
 | Training-free wording and fixed schedule | Clarify "training-free" means no retraining, learned policy, or per-model calibration; the fixed window is a deterministic recipe. | Textual clarification |
 | Full VBench benchmark | Do not claim full VBench. State that the rebuttal run uses a balanced VBench-24 subset targeting the reviewer-named temporal dimensions. | Table 2 caption |
 
+### Optional Table 4: SDXL matched-budget SADA comparison
+
+Quality uses 200 COCO prompts. Timing is a separate same-GPU sequential pass on 50 prompts.
+
+| Method | Actual NFE | sec/img ↓ | Speedup ↑ | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|---:|
+| Full | 50.0 | 3.366 | 1.00x | 0.3170 | 0.7550 |
+| SADA | 25.2 | 1.556 | 2.16x | 0.3171 | 0.7417 |
+| ZEUS | 24.0 | 1.464 | 2.30x | 0.3166 | 0.7339 |
+
+Key sentence:
+
+> On SDXL, ZEUS and SADA are closely matched in actual NFE and same-GPU latency. SADA has slightly higher ImageReward, while ZEUS is faster with nearly identical CLIPScore; we will present this as a deployment tradeoff rather than pointwise dominance.
+
+### Optional Table 5: SDXL schedule and predictor robustness
+
+| Experiment | Best rebuttal takeaway |
+|---|---|
+| Predictor ablation | Lagrange-4 does not improve over the default; no-Lagrange is more conservative and improves ImageReward at higher NFE/latency. |
+| Window sensitivity | CLIPScore is stable across 10/80/10, 15/70/15, 20/70/10, and 25/60/15; ImageReward follows the expected speed-quality tradeoff. |
+| r stress test | CLIPScore remains stable for r=3 to r=6, while ImageReward drops at the boundary, clarifying the practical acceleration regime. |
+
 ## Draft Rebuttal Text
 
 We thank the reviewers for the concrete suggestions. We added two sets of experiments to address the main missing evidence: standard text-to-image alignment/preference metrics and video temporal metrics.
@@ -53,6 +75,8 @@ First, for FLUX.1-dev, we evaluated CLIPScore and ImageReward on 200 COCO prompt
 Second, to address the concern that changing the ODE integration trajectory may harm video temporal coherence, we added a balanced VBench evaluation on Wan2.1-T2V-14B. We used VBench 0.1.5 with 24 prompts, selecting 8 prompts each from the reviewer-relevant dimensions subject consistency, motion smoothness, and temporal flickering. At 480x832 resolution, 81 frames, and 50 steps, Full sampling obtains subject consistency 0.9619, motion smoothness 0.9810, temporal flickering 0.9737, and imaging quality 0.6118. ZEUS obtains 0.9628, 0.9820, 0.9755, and 0.6008, respectively. These results show that ZEUS does not degrade the three temporal metrics targeted by the reviewer; in fact, all three slightly improve, while imaging quality decreases only modestly by 0.0110. We will include the prompt list and explicitly state that this is a balanced VBench-24 rebuttal subset, not the full 946-prompt VBench benchmark.
 
 Regarding SADA and other adaptive methods, we agree that adaptive budget allocation is a different axis from our fixed output-level reuse strategy. Our claim is not that ZEUS subsumes adaptive schedulers or dominates every operating point. Rather, ZEUS asks a different question: how much output-level information is sufficient for acceleration under evaluation scarcity, using a simple recipe without training, a learned policy, per-model calibration, or architecture-specific cache design. To avoid ambiguity, we will emphasize real end-to-end wall-clock latency rather than nominal acceleration labels. The new FLUX timing result is an example: ZEUS and SADA have essentially identical same-GPU latency, while ZEUS gives higher ImageReward in that setting. For SD-family cases where SADA has stronger single-metric quality at nearby speedups, we will state this clearly and frame ZEUS as a simpler quality-speed-memory tradeoff rather than a pointwise replacement for adaptive methods.
+
+We also added an SDXL matched-budget comparison because several comments focus on legacy latent diffusion models. On 200 COCO prompts, Full/SADA/ZEUS obtain CLIPScore 0.3170/0.3171/0.3166 and ImageReward 0.7550/0.7417/0.7339. In a separate same-GPU sequential timing pass, Full/SADA/ZEUS use 50.0/25.2/24.0 actual NFE and take 3.366/1.556/1.464 sec/img. Thus SADA has slightly higher ImageReward on this SDXL setting, while ZEUS is about 6% faster than SADA with nearly identical CLIPScore. We will report this candidly as a fair speed-quality tradeoff.
 
 For the complementarity claim, we agree that joint measurements with sparse attention or cache methods would be needed to prove empirical additivity. Our intended claim is architectural: ZEUS modifies the sampling schedule and output-level denoiser reuse, whereas token/attention sparsification reduces per-call computation inside the denoiser. We will therefore soften the wording to "potentially complementary" and list joint ZEUS plus sparse/cache evaluation as future work.
 
