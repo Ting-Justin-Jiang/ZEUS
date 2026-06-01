@@ -105,6 +105,25 @@ The default-schedule rows keep the ZEUS schedule fixed: `acc_range=(10,45)`, `de
 
 Takeaway: under the default ZEUS anchor schedule, increasing `max_interval` beyond 6 does not create longer consecutive skips; the observed run length saturates at 5 and quality is unchanged. When we explicitly extend the anchor interval, 7 consecutive skips remains close to default quality, while 11 consecutive skips causes a large ImageReward drop. This gives a concrete failure boundary and supports stating that ZEUS targets the practical moderate-acceleration regime rather than arbitrary long cache intervals.
 
+## SDXL Sparse-Attention Complementarity Pilot
+
+Run root: `rebuttal/runs/sdxl_sparse_complementarity200`
+
+Setting: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1. Generation and evaluation were run sequentially on GPU2. The sparse variant is a naive top-k cross-attention sparsity pilot, not an optimized sparse-attention implementation and not a speed baseline. It is intended only to test whether ZEUS approximation error catastrophically compounds with attention sparsity.
+
+Baseline Full/ZEUS rows are from `rebuttal/runs/sdxl_coco200_matched`; sparse rows are from this pilot.
+
+| Method | Cross-attn sparsity | Actual NFE | sec/img | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|---:|
+| Full | 0% | 50.0 | 3.366 | 0.3170 | 0.7550 |
+| ZEUS | 0% | 24.0 | 1.464 | 0.3166 | 0.7339 |
+| Sparse only | 20% | 50.0 | 4.607 | 0.3176 | 0.7411 |
+| ZEUS + sparse | 20% | 24.0 | 2.323 | 0.3170 | 0.7114 |
+| Sparse only | 50% | 50.0 | 4.563 | 0.3173 | 0.7717 |
+| ZEUS + sparse | 50% | 24.0 | 2.291 | 0.3171 | 0.7591 |
+
+Takeaway: CLIPScore remains stable for sparse-only and ZEUS+sparse variants, suggesting no prompt-alignment collapse. ImageReward changes are modest except for the naive 20% sparse composition case, and the 50% sparse composition remains close to sparse-only/full quality. This supports a conservative statement that a lightweight sparse-attention pilot does not show catastrophic error compounding, while optimized joint sparse-attention speedups remain future work.
+
 ## Wan2.1 Balanced VBench-24
 
 Run root: `rebuttal/runs/wan_vbench24_balanced`

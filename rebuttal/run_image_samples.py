@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from datasets import load_dataset
+from diffusers.models.attention_processor import AttnProcessor2_0
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
 
@@ -64,6 +65,92 @@ def make_pipeline(args):
         return pipe
 
     raise ValueError(f"Unsupported model family: {args.model_family}")
+
+
+class SparseCrossAttnProcessor:
+    """Naive top-k cross-attention sparsity for composition/error tests.
+
+    Self-attention falls back to SDPA to avoid materializing huge spatial
+    attention matrices. This is a quality stress test, not a speed baseline.
+    """
+
+    def __init__(self, sparsity: float, min_keep: int = 1):
+        if not 0 <= sparsity < 1:
+            raise ValueError("cross-attention sparsity must be in [0, 1)")
+        self.sparsity = sparsity
+        self.min_keep = min_keep
+        self.fallback = AttnProcessor2_0()
+
+    def __call__(
+        self,
+        attn,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
+        temb=None,
+        *args,
+        **kwargs,
+    ):
+        if self.sparsity == 0 or encoder_hidden_states is None:
+            return self.fallback(attn, hidden_states, encoder_hidden_states, attention_mask, temb, *args, **kwargs)
+
+        residual = hidden_states
+
+        if attn.spatial_norm is not None:
+            hidden_states = attn.spatial_norm(hidden_states, temb)
+
+        input_ndim = hidden_states.ndim
+        if input_ndim == 4:
+            batch_size, channel, height, width = hidden_states.shape
+            hidden_states = hidden_states.view(batch_size, channel, height * width).transpose(1, 2)
+
+        batch_size, sequence_length, _ = encoder_hidden_states.shape
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
+
+        if attn.group_norm is not None:
+            hidden_states = attn.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+        query = attn.to_q(hidden_states)
+        if attn.norm_cross:
+            encoder_hidden_states = attn.norm_encoder_hidden_states(encoder_hidden_states)
+        key = attn.to_k(encoder_hidden_states)
+        value = attn.to_v(encoder_hidden_states)
+
+        query = attn.head_to_batch_dim(query)
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+
+        attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        keep = max(self.min_keep, int(round(attention_probs.shape[-1] * (1.0 - self.sparsity))))
+        keep = min(keep, attention_probs.shape[-1])
+        if keep < attention_probs.shape[-1]:
+            top_values, top_indices = attention_probs.topk(keep, dim=-1)
+            sparse_probs = torch.zeros_like(attention_probs)
+            sparse_probs.scatter_(-1, top_indices, top_values)
+            sparse_probs = sparse_probs / sparse_probs.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+            attention_probs = sparse_probs
+
+        hidden_states = torch.bmm(attention_probs, value)
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+        hidden_states = attn.to_out[0](hidden_states)
+        hidden_states = attn.to_out[1](hidden_states)
+
+        if input_ndim == 4:
+            hidden_states = hidden_states.transpose(-1, -2).reshape(batch_size, channel, height, width)
+
+        if attn.residual_connection:
+            hidden_states = hidden_states + residual
+
+        return hidden_states / attn.rescale_output_factor
+
+
+def apply_cross_attention_sparsity(pipe, args) -> None:
+    if args.cross_attention_sparsity == 0:
+        return
+    if not hasattr(pipe, "unet"):
+        raise ValueError("cross-attention sparsity pilot currently supports UNet pipelines only")
+    processor = SparseCrossAttnProcessor(args.cross_attention_sparsity, args.sparse_attn_min_keep)
+    pipe.unet.set_attn_processor(processor)
 
 
 def apply_method_patch(pipe, args) -> None:
@@ -199,6 +286,7 @@ def main(args):
 
     pipe = make_pipeline(args)
     apply_method_patch(pipe, args)
+    apply_cross_attention_sparsity(pipe, args)
 
     # Warmup is only for stable timing; it is not saved.
     warmup_prompt = prompts[0]
@@ -263,6 +351,8 @@ def main(args):
         "width": args.width,
         "batch_size": args.batch_size,
         "seed": args.seed,
+        "cross_attention_sparsity": args.cross_attention_sparsity,
+        "sparse_attn_min_keep": args.sparse_attn_min_keep,
         "total_generation_seconds": total_time,
         "seconds_per_image": total_time / max(generated, 1),
         "peak_memory_gb": peak_memory_gb,
@@ -318,6 +408,8 @@ if __name__ == "__main__":
     parser.add_argument("--guidance-scale", type=float, default=3.5)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--cross-attention-sparsity", type=float, default=0.0)
+    parser.add_argument("--sparse-attn-min-keep", type=int, default=1)
 
     parser.add_argument("--acc-start", type=int, default=10)
     parser.add_argument("--acc-end", type=int, default=45)

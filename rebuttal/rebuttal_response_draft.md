@@ -83,6 +83,23 @@ Key sentence:
 
 > Under the default anchor schedule, increasing max_interval beyond 6 saturates at 5 observed consecutive skips and does not further change quality. When we explicitly extend the anchor interval, 7 consecutive skips remains close to default quality, while 11 consecutive skips causes a large ImageReward drop, identifying the practical failure boundary.
 
+### Optional Table 7: Sparse-attention complementarity pilot
+
+Setting: SDXL base 1.0, 200 COCO prompts, 1024x1024, 50 steps, DPM solver, guidance 5.0, batch size 1. The sparse variant is a naive top-k cross-attention sparsity pilot, not an optimized sparse-attention speed baseline.
+
+| Method | Cross-attn sparsity | NFE | CLIP ↑ | ImageReward ↑ |
+|---|---:|---:|---:|---:|
+| Full | 0% | 50.0 | 0.3170 | 0.7550 |
+| ZEUS | 0% | 24.0 | 0.3166 | 0.7339 |
+| Sparse only | 20% | 50.0 | 0.3176 | 0.7411 |
+| ZEUS + sparse | 20% | 24.0 | 0.3170 | 0.7114 |
+| Sparse only | 50% | 50.0 | 0.3173 | 0.7717 |
+| ZEUS + sparse | 50% | 24.0 | 0.3171 | 0.7591 |
+
+Key sentence:
+
+> A naive cross-attention sparsity pilot shows stable CLIPScore for both sparse-only and ZEUS+sparse settings, suggesting no prompt-alignment collapse. ImageReward changes are modest except for the 20% sparse composition case; we will present this only as an error-composition sanity check, not as evidence of optimized sparse-attention speedup.
+
 ## Draft Rebuttal Text
 
 We thank the reviewers for the concrete suggestions. We added two sets of experiments to address the main missing evidence: standard text-to-image alignment/preference metrics and video temporal metrics.
@@ -98,6 +115,8 @@ We also added an SDXL matched-budget comparison because several comments focus o
 To probe the limit boundary of interleaved scheduling, we also ran a consecutive-skip stress test on 200 SDXL COCO prompts on one GPU. Under the default anchor schedule, increasing max_interval from 2 to 8 yields observed maximum consecutive skips of 2, 4, 5, and 5, respectively, with CLIPScore around 0.3166-0.3171 and ImageReward 0.7339-0.7631. Since the default anchor interval itself caps longer runs, we additionally extended the anchor interval: 7 consecutive skips remains close to default quality (CLIP 0.3167, ImageReward 0.7366), while 11 consecutive skips causes a large ImageReward drop to 0.5599. We will clarify that ZEUS is intended for the practical moderate-acceleration regime, not arbitrary long cache intervals.
 
 For the complementarity claim, we agree that joint measurements with sparse attention or cache methods would be needed to prove empirical additivity. Our intended claim is architectural: ZEUS modifies the sampling schedule and output-level denoiser reuse, whereas token/attention sparsification reduces per-call computation inside the denoiser. We will therefore soften the wording to "potentially complementary" and list joint ZEUS plus sparse/cache evaluation as future work.
+
+We also added a lightweight sparse-attention composition pilot on SDXL. Since optimized sparse kernels are outside the scope of this rebuttal, we used naive top-k cross-attention sparsity only to test error compounding. Across 200 COCO prompts, CLIPScore remains stable for sparse-only and ZEUS+sparse settings: Full/ZEUS/Sparse20/ZEUS+Sparse20/Sparse50/ZEUS+Sparse50 obtain 0.3170/0.3166/0.3176/0.3170/0.3173/0.3171. ImageReward shows no catastrophic collapse, though the 20% sparse composition has a modest additional drop. We will therefore revise the claim to "potentially complementary" and report this as a small sanity check, with optimized joint sparse-attention speedups left for future work.
 
 Finally, we will clarify the "training-free" wording. By training-free we mean no model retraining, no learned policy, and no per-model calibration. The schedule/window parameters are deterministic default recipes rather than optimized per benchmark. We will also fix presentation issues in the revision, including pseudocode, notation for true vs predicted values, duplicated text, and figure label readability.
 
