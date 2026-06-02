@@ -124,6 +124,25 @@ Baseline Full/ZEUS rows are from `rebuttal/runs/sdxl_coco200_matched`; sparse ro
 
 Takeaway: CLIPScore remains stable for sparse-only and ZEUS+sparse variants, suggesting no prompt-alignment collapse. ImageReward changes are modest except for the naive 20% sparse composition case, and the 50% sparse composition remains close to sparse-only/full quality. This supports a conservative statement that a lightweight sparse-attention pilot does not show catastrophic error compounding, while optimized joint sparse-attention speedups remain future work.
 
+## SDXL Token-Update Sparsity Stress, Aligned With Sparse-Attention Pilot
+
+Token-only run root: `rebuttal/runs/sdxl_token_complementarity200`
+
+Sparse-attention + token-update run root: `rebuttal/runs/sdxl_sparse_token_complementarity200`
+
+Setting: same as the sparse-attention pilot above: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1, sequential GPU2 generation/evaluation. The token variant is a deliberately naive token-update sparsity stress test: after each transformer block, it keeps the highest update-norm tokens and reuses the block input for pruned tokens. This is not an optimized token-pruning implementation and should not be presented as a real token-sparsity speed baseline.
+
+Each quality cell is `CLIPScore / ImageReward`.
+
+| Pruned fraction | Sampler | NFE | Base | + sparse-attn | + token-update | + sparse-attn + token-update |
+|---:|---|---:|---:|---:|---:|---:|
+| 20% | Full | 50.0 | 0.3170 / 0.7550 | 0.3176 / 0.7411 | 0.3035 / 0.1245 | 0.3029 / 0.1389 |
+| 20% | ZEUS | 24.0 | 0.3166 / 0.7339 | 0.3170 / 0.7114 | 0.3013 / 0.0333 | 0.3004 / 0.0256 |
+| 50% | Full | 50.0 | 0.3170 / 0.7550 | 0.3173 / 0.7717 | 0.2569 / -1.7527 | 0.2570 / -1.7408 |
+| 50% | ZEUS | 24.0 | 0.3166 / 0.7339 | 0.3171 / 0.7591 | 0.2526 / -1.7956 | 0.2521 / -1.8004 |
+
+Takeaway: this is a negative stress result for the naive token-update hook. Sparse-attention alone remains stable, but naive token-update reuse causes a large quality drop even without ZEUS, especially at 50%. Adding ZEUS to this already-bad token hook does not create a qualitatively new failure mode, but these rows should not be used as positive evidence for token-sparsity complementarity. For the rebuttal, the safer claim is: the sparse-attention joint pilot supports no catastrophic error compounding for a lightweight attention-sparsity check; token-level sparsity needs a real optimized method rather than this naive proxy.
+
 ## Wan2.1 Balanced VBench-24
 
 Run root: `rebuttal/runs/wan_vbench24_balanced`

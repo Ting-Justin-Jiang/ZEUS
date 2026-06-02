@@ -4,6 +4,7 @@ import os
 import random
 import sys
 import time
+import types
 from pathlib import Path
 
 import numpy as np
@@ -153,6 +154,44 @@ def apply_cross_attention_sparsity(pipe, args) -> None:
     pipe.unet.set_attn_processor(processor)
 
 
+def apply_token_update_sparsity(pipe, args) -> None:
+    if args.token_update_sparsity == 0:
+        return
+    if not hasattr(pipe, "unet"):
+        raise ValueError("token-update sparsity pilot currently supports UNet pipelines only")
+    if not 0 <= args.token_update_sparsity < 1:
+        raise ValueError("token-update sparsity must be in [0, 1)")
+
+    patched = 0
+    for module in pipe.unet.modules():
+        if not (hasattr(module, "attn1") and hasattr(module, "ff") and callable(getattr(module, "forward", None))):
+            continue
+        original_forward = module.forward
+
+        def sparse_forward(self, hidden_states, *forward_args, _original_forward=original_forward, **forward_kwargs):
+            residual = hidden_states
+            output = _original_forward(hidden_states, *forward_args, **forward_kwargs)
+            if residual.ndim != 3 or output.shape != residual.shape:
+                return output
+
+            token_count = output.shape[1]
+            keep = max(args.token_sparse_min_keep, int(round(token_count * (1.0 - args.token_update_sparsity))))
+            keep = min(keep, token_count)
+            if keep >= token_count:
+                return output
+
+            scores = residual.detach().float().pow(2).mean(dim=-1)
+            keep_idx = scores.topk(keep, dim=1, largest=True, sorted=False).indices
+            mask = torch.zeros(output.shape[0], token_count, 1, device=output.device, dtype=output.dtype)
+            mask.scatter_(1, keep_idx.unsqueeze(-1), 1)
+            return output * mask + residual * (1 - mask)
+
+        module.forward = types.MethodType(sparse_forward, module)
+        patched += 1
+
+    print(f"Applied token-update sparsity to {patched} transformer blocks")
+
+
 def apply_method_patch(pipe, args) -> None:
     if args.method == "original":
         return
@@ -287,6 +326,7 @@ def main(args):
     pipe = make_pipeline(args)
     apply_method_patch(pipe, args)
     apply_cross_attention_sparsity(pipe, args)
+    apply_token_update_sparsity(pipe, args)
 
     # Warmup is only for stable timing; it is not saved.
     warmup_prompt = prompts[0]
@@ -353,6 +393,8 @@ def main(args):
         "seed": args.seed,
         "cross_attention_sparsity": args.cross_attention_sparsity,
         "sparse_attn_min_keep": args.sparse_attn_min_keep,
+        "token_update_sparsity": args.token_update_sparsity,
+        "token_sparse_min_keep": args.token_sparse_min_keep,
         "total_generation_seconds": total_time,
         "seconds_per_image": total_time / max(generated, 1),
         "peak_memory_gb": peak_memory_gb,
@@ -410,6 +452,8 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--cross-attention-sparsity", type=float, default=0.0)
     parser.add_argument("--sparse-attn-min-keep", type=int, default=1)
+    parser.add_argument("--token-update-sparsity", type=float, default=0.0)
+    parser.add_argument("--token-sparse-min-keep", type=int, default=1)
 
     parser.add_argument("--acc-start", type=int, default=10)
     parser.add_argument("--acc-end", type=int, default=45)
