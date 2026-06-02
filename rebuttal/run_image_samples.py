@@ -180,7 +180,12 @@ def apply_token_update_sparsity(pipe, args) -> None:
             if keep >= token_count:
                 return output
 
-            scores = residual.detach().float().pow(2).mean(dim=-1)
+            if args.token_sparse_score == "residual_norm":
+                scores = residual.detach().float().pow(2).mean(dim=-1)
+            elif args.token_sparse_score == "update_norm":
+                scores = (output - residual).detach().float().pow(2).mean(dim=-1)
+            else:
+                raise ValueError(f"unknown token sparse score: {args.token_sparse_score}")
             keep_idx = scores.topk(keep, dim=1, largest=True, sorted=False).indices
             mask = torch.zeros(output.shape[0], token_count, 1, device=output.device, dtype=output.dtype)
             mask.scatter_(1, keep_idx.unsqueeze(-1), 1)
@@ -394,6 +399,7 @@ def main(args):
         "cross_attention_sparsity": args.cross_attention_sparsity,
         "sparse_attn_min_keep": args.sparse_attn_min_keep,
         "token_update_sparsity": args.token_update_sparsity,
+        "token_sparse_score": args.token_sparse_score,
         "token_sparse_min_keep": args.token_sparse_min_keep,
         "total_generation_seconds": total_time,
         "seconds_per_image": total_time / max(generated, 1),
@@ -453,6 +459,7 @@ if __name__ == "__main__":
     parser.add_argument("--cross-attention-sparsity", type=float, default=0.0)
     parser.add_argument("--sparse-attn-min-keep", type=int, default=1)
     parser.add_argument("--token-update-sparsity", type=float, default=0.0)
+    parser.add_argument("--token-sparse-score", choices=["residual_norm", "update_norm"], default="residual_norm")
     parser.add_argument("--token-sparse-min-keep", type=int, default=1)
 
     parser.add_argument("--acc-start", type=int, default=10)

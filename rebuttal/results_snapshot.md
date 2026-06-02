@@ -124,13 +124,32 @@ Baseline Full/ZEUS rows are from `rebuttal/runs/sdxl_coco200_matched`; sparse ro
 
 Takeaway: CLIPScore remains stable for sparse-only and ZEUS+sparse variants, suggesting no prompt-alignment collapse. ImageReward changes are modest except for the naive 20% sparse composition case, and the 50% sparse composition remains close to sparse-only/full quality. This supports a conservative statement that a lightweight sparse-attention pilot does not show catastrophic error compounding, while optimized joint sparse-attention speedups remain future work.
 
-## SDXL Token-Update Sparsity Stress, Aligned With Sparse-Attention Pilot
+## SDXL Update-Norm Token-Update Sparsity Pilot
+
+Run root: `rebuttal/runs/sdxl_token_update_norm200`
+
+Setting: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1, sequential GPU2 generation/evaluation. The token variant is a conservative token-update proxy: after each transformer block, it computes per-token update magnitude `||output - input||`, freezes only the lowest-update tokens, and keeps all high-update tokens. This is still not an optimized token-pruning speed baseline because the full block is computed before masking; it is intended as an error-composition sanity check.
+
+Baseline Full/ZEUS rows are from `rebuttal/runs/sdxl_coco200_matched`; token rows are from this pilot.
+
+| Method | Token-update sparsity | Score | Actual NFE | sec/img | CLIPScore ↑ | ImageReward ↑ |
+|---|---:|---|---:|---:|---:|---:|
+| Full | 0% | - | 50.0 | 3.366 | 0.3170 | 0.7550 |
+| ZEUS | 0% | - | 24.0 | 1.464 | 0.3166 | 0.7339 |
+| Token-update only | 5% | update-norm | 50.0 | 4.942 | 0.3168 | 0.7157 |
+| ZEUS + token-update | 5% | update-norm | 24.0 | 2.639 | 0.3163 | 0.6910 |
+| Token-update only | 10% | update-norm | 50.0 | 5.061 | 0.3181 | 0.6815 |
+| ZEUS + token-update | 10% | update-norm | 24.0 | 2.589 | 0.3178 | 0.6291 |
+
+Takeaway: update-norm token selection is much more reasonable than the residual-norm negative control below. At 5% pruning, CLIPScore stays essentially unchanged and ImageReward has a moderate drop, including under ZEUS. At 10%, CLIPScore is still stable but ImageReward drops more, indicating that token-update freezing is preference-sensitive. This supports a cautious statement that conservative update-importance token reuse does not create a semantic collapse with ZEUS, while optimized token sparsity remains future work.
+
+## SDXL Residual-Norm Token-Update Negative Control, Aligned With Sparse-Attention Pilot
 
 Token-only run root: `rebuttal/runs/sdxl_token_complementarity200`
 
 Sparse-attention + token-update run root: `rebuttal/runs/sdxl_sparse_token_complementarity200`
 
-Setting: same as the sparse-attention pilot above: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1, sequential GPU2 generation/evaluation. The token variant is a deliberately naive token-update sparsity stress test: after each transformer block, it keeps the highest update-norm tokens and reuses the block input for pruned tokens. This is not an optimized token-pruning implementation and should not be presented as a real token-sparsity speed baseline.
+Setting: same as the sparse-attention pilot above: SDXL base 1.0, 200 COCO prompts, `1024x1024`, `50` steps, DPM solver, guidance scale `5.0`, batch size 1, sequential GPU2 generation/evaluation. This negative control uses a deliberately crude token-update rule: after each transformer block, it keeps the highest input/residual-norm tokens and reuses the block input for pruned tokens. This is not an optimized token-pruning implementation and should not be presented as a real token-sparsity speed baseline.
 
 Each quality cell is `CLIPScore / ImageReward`.
 
@@ -141,7 +160,7 @@ Each quality cell is `CLIPScore / ImageReward`.
 | 50% | Full | 50.0 | 0.3170 / 0.7550 | 0.3173 / 0.7717 | 0.2569 / -1.7527 | 0.2570 / -1.7408 |
 | 50% | ZEUS | 24.0 | 0.3166 / 0.7339 | 0.3171 / 0.7591 | 0.2526 / -1.7956 | 0.2521 / -1.8004 |
 
-Takeaway: this is a negative stress result for the naive token-update hook. Sparse-attention alone remains stable, but naive token-update reuse causes a large quality drop even without ZEUS, especially at 50%. Adding ZEUS to this already-bad token hook does not create a qualitatively new failure mode, but these rows should not be used as positive evidence for token-sparsity complementarity. For the rebuttal, the safer claim is: the sparse-attention joint pilot supports no catastrophic error compounding for a lightweight attention-sparsity check; token-level sparsity needs a real optimized method rather than this naive proxy.
+Takeaway: this is a negative control for input/residual-norm token freezing. Sparse-attention alone remains stable, but residual-norm token-update reuse causes a large quality drop even without ZEUS, especially at 50%. Adding ZEUS to this already-bad token hook does not create a qualitatively new failure mode, but these rows should not be used as positive evidence for token-sparsity complementarity. The update-norm pilot above is the more defensible token-level sanity check.
 
 ## Wan2.1 Balanced VBench-24
 
